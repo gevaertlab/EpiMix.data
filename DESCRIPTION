@@ -1,0 +1,35 @@
+Package: EpiMix.data
+Title: Data for the EpiMix package
+Version: 0.99.0
+Authors@R: c(
+             person("Yuanning", "Zheng", email = c("yuanning.zheng@gmail.com"), role = c("aut", "cre")),
+             person("Olivier", "Gevaert", email = c("ogevaert@stanford.edu"), role = c("aut"))
+             )
+Maintainer: Yuanning Zheng <yuanning.zheng@gmail.com>
+Description:
+  Supporting data for the EpiMix R package.
+  It include:
+   - HM450_lncRNA_probes.rda
+   - HM450_miRNA_probes.rda
+   - EPIC_lncRNA_probes.rda
+   - EPIC_miRNA_probes.rda
+   - EpigenomeMap.rda
+   - LUAD.sample.annotation
+   - TCGA_BatchData
+   - MET.data
+   - mRNA.data
+   - microRNA.data
+   - lncRNA.data
+   - Sample_EpiMixResults_lncRNA
+   - Sample_EpiMixResults_miRNA
+   - Sample_EpiMixResults_Regular
+  That is. 
+License: GPL-3
+Encoding: UTF-8
+LazyData: true
+Depends:
+    R (>= 3.5.0)
+biocViews: AssayDomainData, TechnologyData, OrganismData
+NeedsCompilation: no
+RoxygenNote: 7.1.2
+VignetteBuilder: knitr

@@ -1,0 +1,1188 @@
+library(biomaRt)
+library(GenomicRanges)
+library(tidyr)
+library(dplyr)
+library(SummarizedExperiment)
+library(sesameData)
+library(doSNOW)
+library(doParallel)
+library(GEOquery)
+library(limma)
+library(RCurl)
+# Pathway enrichment analysis
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(enrichplot)
+library(karyoploteR)
+library(TxDb.Hsapiens.UCSC.hg19.knownGene)
+library(RColorBrewer)
+library(miRNetR)
+# Survival analysis
+library(survival)
+library(survminer)
+
+
+setwd("/home/eric2021/EpiMix")
+
+source("EpiMix_R/R/TCGA_Download_Preprocess.R")
+source("EpiMix_R/R/GEO_Download_Preprocess.R")
+source("EpiMix_R/R/util.R")
+source("EpiMix_R/R/EpiMix.R")
+source("EpiMix_R/R/MethylMix.R")
+source("EpiMix_R/R/GetNearbyGenes.R")
+source("EpiMix_R/R/plot_gene.R")
+source("EpiMix_R/R/plot_probe.R")
+
+
+# Figure 2 ----------------------------------------------------------------
+
+setwd("/home/eric2021/EpiMix")
+DataDirectory <- paste0(getwd(), "/", "Data/GEO_Allergy")
+ResultDirectory <- paste0(getwd(), "/", "Results/GEO_Allergy")
+
+# Run Epimix
+methylation.data = readRDS("Data/GEO_Allergy/MET_GSE114134_Processed.rds")
+gene.expression.data = readRDS("Data/GEO_Allergy/GEN_GSE114065_Processed.rds")
+sample.info = read.csv("Data/GEO_Allergy/sample.info.stimulation.csv")
+group.1 = c("allergic-stimulated", "resolved-stimulated")
+group.2 = c("control-stimulated")
+target.region <- ""
+met.platform <-  "EPIC"
+genome <- "hg38"
+AnnotationRoot = paste0(getwd(),"/","Annotation")
+OutputRoot = paste0(getwd(),"/","Results/GEO_Allergy")
+cores = detectCores()/2
+#MixtureModelResults = "Results/GEO_Allergy/EpiMix_Results_enhancer.rds"
+MixtureModelResults = NULL
+
+EpiMixResults <- EpiMix(methylation.data,
+                        gene.expression.data,
+                        sample.info = sample.info,
+                        group.1 = group.1,
+                        group.2 = group.2,
+                        target.region = target.region,
+                        met.platform = met.platform,
+                        genome = genome,
+                        cores = cores,
+                        AnnotationRoot = AnnotationRoot,
+                        OutputRoot = OutputRoot,
+                        MixtureModelResults = MixtureModelResults
+)
+
+EpiMixResults <- readRDS("Results/GEO_Allergy/EpiMix_Results_regular_simulationVSresting.rds")
+FunctionalPairs <- EpiMixResults$FunctionalPairs
+
+# Probe-level analysis
+length(unique(FunctionalPairs$Probe))
+hypo.probes = unique(FunctionalPairs$Probe[which(FunctionalPairs$State == "Hypo")])
+length(hypo.probes)
+hypo.genes = unique(FunctionalPairs$Gene[which(FunctionalPairs$State == "Hypo")])
+length(hypo.genes)
+hyper.probes = unique(FunctionalPairs$Probe[which(FunctionalPairs$State == "Hyper")])
+length(hyper.probes)
+hyper.genes = unique(FunctionalPairs$Gene[which(FunctionalPairs$State == "Hyper")])
+length(hyper.genes)
+dual.probes = unique(FunctionalPairs$Probe[which(FunctionalPairs$State == "Dual")])
+length(dual.probes)
+dual.genes = unique(FunctionalPairs$Gene[which(FunctionalPairs$State == "Dual")])
+length(dual.genes)
+
+# Gene-level analysis
+length(unique(FunctionalPairs$Probe)) #1090
+length(unique(FunctionalPairs$Gene)) #748
+hypo.genes = unique(FunctionalPairs$Gene[which(FunctionalPairs$State == "Hypo")]) #504
+hyper.genes = unique(FunctionalPairs$Gene[which(FunctionalPairs$State == "Hyper")]) #238
+dual.genes = unique(FunctionalPairs$Gene[which(FunctionalPairs$State == "Dual")]) #12
+overlap.genes = unique(intersect(hypo.genes, hyper.genes)) #0
+unique.hypo.genes = setdiff(hypo.genes, dual.genes) #501
+unique.hyper.genes = setdiff(hyper.genes, dual.genes) #235
+hypo.percent = length(unique.hypo.genes)/ length(unique(FunctionalPairs$Gene)) #0.6697
+hyper.percent = length(unique.hyper.genes)/ length(unique(FunctionalPairs$Gene)) #0.3141711
+dual.percent = length(dual.genes)/ length(unique(FunctionalPairs$Gene)) #0.01604278
+
+# plot the histogram for a gene
+Probe = "cg14645244"
+Gene = "HLA-DRB1"
+EpiMix_PlotModel(EpiMixResults, Probe, GeneName = Gene, methylation.data, gene.expression.data,
+                axis.title.font = 20, axis.text.font = 16, legend.title.font = 18, legend.text.font = 18, plot.title.font = 20)
+
+# plot all histograms and violin plots
+for(row in 1:nrow(FunctionalPairs)){
+  plot.probe = FunctionalPairs$Probe[row]
+  GeneName = FunctionalPairs$Gene[row]
+  mixture <- EpiMix_PlotModel(plot.probe, EpiMixResults, methylation.data, gene.expression.data, GeneName = GeneName)
+  png(file= paste0("Results/GEO_Allergy/mixture_regular/", plot.probe, "_mixture_", GeneName, ".png"),width=780, height=480)
+  print(mixture$MixtureModelPlot)
+  dev.off()
+  png(file= paste0("Results/GEO_Allergy/mixture_regular/", plot.probe, "_viloin_", GeneName, ".png"),width=780, height=480)
+  print(mixture$ViolinPlot)
+  dev.off()
+}
+
+# Pathway enrichment analysis
+hypo.genes = FunctionalPairs[FunctionalPairs$State=="Hypo", ]
+df.gene = hypo.genes %>%
+  dplyr::select(Gene, `Fold change of gene expression`) %>%
+  group_by(Gene) %>% summarize(Avg.expr = mean(`Fold change of gene expression`, na.rm = TRUE))
+gene_id_map = AnnotationDbi::select(org.Hs.eg.db, keys = df.gene$Gene, columns = c("ENTREZID"), keytype = "SYMBOL")
+colnames(gene_id_map) = c("Gene", "ENTREZID")
+df.gene = merge(df.gene, gene_id_map)
+gene.vector = df.gene$Avg.expr
+names(gene.vector) = df.gene$ENTREZID
+ego<- enrichGO(names(gene.vector), OrgDb = "org.Hs.eg.db", ont="BP", readable=TRUE)
+#goplot(ego)
+#barplot(ego, showCategory=15)
+#cnetplot(ego, colorEdge = TRUE)
+ego2 <- simplify(ego)
+barplot(ego2)
+#layouts = c('star', 'circle', 'gem', 'dh', 'graphopt', 'grid', 'mds', 'randomly', 'fr', 'kk', 'drl','lgl')
+#show.categories <- c("T cell activation", "T cell proliferation", "T cell receptor signaling pathway", "glycoprotein biosynthetic process")
+#cnetplot(ego2,foldChange = log(gene.vector,2), showCategory = show.categories)
+ego3<- enrichGO(names(gene.vector), OrgDb = "org.Hs.eg.db", ont="MF", readable=TRUE)
+
+write.csv(ego2@result, "Results/GEO_Allergy/GO_BP_regular.csv", row.names = FALSE)
+write.csv(ego3@result, "Results/GEO_Allergy/GO_MF_regular.csv", row.names = FALSE)
+
+# stimulation vs resting
+EpiMixResults <- readRDS(paste0(ResultDirectory, "/", "EpiMix_Results_regular_simulationVSresting.rds"))
+
+methylation.states <- getMethStates(EpiMixResults, EpiMixResults$MethylationDrivers)
+met.platform = "EPIC"
+genome = "hg38"
+ProbeAnnotation = getInfiniumAnnotation(plat = met.platform, genome = genome)
+ProbeAnnotation = convertAnnotToDF(ProbeAnnotation)
+ProbeAnnotation = mapProbeGene(ProbeAnnotation)
+Genes = ProbeAnnotation$gene[which(ProbeAnnotation$probeID %in% names(methylation.states[which(methylation.states == "Dual")]))]
+length(unique(Genes))
+
+sample.info = read.csv(paste0(DataDirectory, "/", "sample.info.csv"), header = TRUE)
+allergy.samples = sample.info$primary[which(sample.info$sample.type == "allergic" | sample.info$sample.type == "resolved")]
+control.samples = sample.info$primary[which(sample.info$sample.type == "control")]
+
+indices = character(0)
+
+for (target.probe in EpiMixResults$MethylationDrivers){
+  state <- methylation.states <- hypo.samples <-  hyper.samples <- normal.samples <- index <-  NULL
+  state <- getMethStates(EpiMixResults, target.probe)
+  methylation.states = EpiMixResults$MethylationStates[target.probe,]
+  hypo.samples = names(methylation.states)[which(methylation.states < 0)]
+  hyper.samples = names(methylation.states)[which(methylation.states > 0)]
+  normal.samples = names(methylation.states)[which(methylation.states == 0)]
+
+  hypo.allergy.samples = intersect(hypo.samples, allergy.samples)
+  hypo.control.samples = intersect(hypo.samples, control.samples)
+  hyper.allergy.samples = intersect(hyper.samples, allergy.samples)
+  hyper.control.samples = intersect(hyper.samples, control.samples)
+  normal.allergy.samples = intersect(normal.samples, allergy.samples)
+  normal.control.samples = intersect(normal.samples, control.samples)
+
+  allergy.hyper.percent = length(hyper.allergy.samples) / (length(hyper.allergy.samples) +  length(hypo.allergy.samples) + length(normal.allergy.samples))
+  allergy.hypo.percent = length(hypo.allergy.samples) / (length(hyper.allergy.samples) +  length(hypo.allergy.samples) + length(normal.allergy.samples))
+  allergy.normal.percent = length(normal.allergy.samples) / (length(hyper.allergy.samples) +  length(hypo.allergy.samples) + length(normal.allergy.samples))
+  control.hyper.percent = length(hyper.control.samples) / (length(hyper.control.samples) +  length(hypo.control.samples) + length(normal.control.samples))
+  control.hypo.percent = length(hypo.control.samples) / (length(hyper.control.samples) +  length(hypo.control.samples) + length(normal.control.samples))
+  control.normal.percent = length(normal.control.samples) / (length(hyper.control.samples) +  length(hypo.control.samples) + length(normal.control.samples))
+
+  allergy.hyper.percent
+  allergy.hypo.percent
+  allergy.normal.percent
+  control.hyper.percent
+  control.hypo.percent
+  control.normal.percent
+
+  if(state == "Dual"){
+    index = abs(allergy.hypo.percent - control.hypo.percent)
+  }else if(state == "Hypo"){
+    index = abs(allergy.hypo.percent - control.hypo.percent)
+  }else{
+    index = abs(allergy.hyper.percent - control.hyper.percent)
+  }
+  indices = c(indices, index)
+}
+
+names(indices) = EpiMixResults$MethylationDrivers
+indices = sort(indices, decreasing = TRUE)
+
+# generate a dataframe to view the distribution of top differentially methylated genes
+probes = c()
+states = c()
+genes = c()
+allergy.hyper.percents = c()
+allergy.hypo.percents = c()
+allergy.normal.percents = c()
+control.hyper.percents = c()
+control.hypo.percents = c()
+control.normal.percents = c()
+
+for (target.probe in names(indices)[1:20]){
+  state <- methylation.states <- hypo.samples <-  hyper.samples <- normal.samples <- index <-  NULL
+  state <- getMethStates(EpiMixResults, target.probe)
+  print(ProbeAnnotation$gene[which(ProbeAnnotation$probeID == target.probe)])
+  methylation.states = EpiMixResults$MethylationStates[target.probe,]
+  hypo.samples = names(methylation.states)[which(methylation.states < 0)]
+  hyper.samples = names(methylation.states)[which(methylation.states > 0)]
+  normal.samples = names(methylation.states)[which(methylation.states == 0)]
+
+  hypo.allergy.samples = intersect(hypo.samples, allergy.samples)
+  hypo.control.samples = intersect(hypo.samples, control.samples)
+  hyper.allergy.samples = intersect(hyper.samples, allergy.samples)
+  hyper.control.samples = intersect(hyper.samples, control.samples)
+  normal.allergy.samples = intersect(normal.samples, allergy.samples)
+  normal.control.samples = intersect(normal.samples, control.samples)
+
+  allergy.hyper.percent = length(hyper.allergy.samples) / (length(hyper.allergy.samples) +  length(hypo.allergy.samples) + length(normal.allergy.samples))
+  allergy.hypo.percent = length(hypo.allergy.samples) / (length(hyper.allergy.samples) +  length(hypo.allergy.samples) + length(normal.allergy.samples))
+  allergy.normal.percent = length(normal.allergy.samples) / (length(hyper.allergy.samples) +  length(hypo.allergy.samples) + length(normal.allergy.samples))
+  control.hyper.percent = length(hyper.control.samples) / (length(hyper.control.samples) +  length(hypo.control.samples) + length(normal.control.samples))
+  control.hypo.percent = length(hypo.control.samples) / (length(hyper.control.samples) +  length(hypo.control.samples) + length(normal.control.samples))
+  control.normal.percent = length(normal.control.samples) / (length(hyper.control.samples) +  length(hypo.control.samples) + length(normal.control.samples))
+
+  cat("allergy.hyper.percent=",allergy.hyper.percent, "\n")
+  cat("allergy.hypo.percent=", allergy.hypo.percent, "\n")
+  cat("allergy.normal.percent=", allergy.normal.percent, "\n")
+  cat("control.hyper.percent=", control.hyper.percent, "\n")
+  cat("control.hypo.percent=", control.hypo.percent, "\n")
+  cat("control.normal.percent=", control.normal.percent, "\n")
+
+  probes = c(probes, target.probe)
+  states = c(states, state)
+  genes = c(genes, paste(ProbeAnnotation$gene[which(ProbeAnnotation$probeID == target.probe)], collapse = ';'))
+  allergy.hyper.percents = c(allergy.hyper.percents, allergy.hyper.percent)
+  allergy.hypo.percents = c(allergy.hypo.percents, allergy.hypo.percent)
+  allergy.normal.percents = c(allergy.normal.percents, allergy.normal.percent)
+  control.hyper.percents = c(control.hyper.percents, control.hyper.percent)
+  control.hypo.percents = c(control.hypo.percents, control.hypo.percent)
+  control.normal.percents = c(control.normal.percents, control.normal.percent)
+}
+
+Distribution = data.frame(probe = probes,
+                          state = states,
+                          genes = genes,
+                          allergy.hypo.percent =  allergy.hypo.percents,
+                          control.hypo.percent = control.hypo.percents,
+                          allergy.normal.percent =  allergy.normal.percents,
+                          control.normal.percent = control.normal.percents,
+                          allergy.hyper.percent =  allergy.hyper.percents,
+                          control.hyper.percent = control.hyper.percents)
+write.csv(Distribution, paste0(ResultDirectory, "/", "distribution.csv"), row.names = FALSE)
+
+# Plot the probe
+gene.name = "CDK14"
+met.platform = "EPIC"
+plot.gene(gene.name = gene.name,
+          EpiMixResults,
+          met.platform = "EPIC",
+          roadmap.epigenome.id = "E034",
+          left.gene.margin = 10000,
+          right.gene.margin = 10000,
+          show.probe.name = TRUE
+)
+
+
+# Figure 3 ----------------------------------------------------------------
+methylation.data = readRDS("Data/GEO_Allergy/MET_GSE114134_Processed.rds")
+gene.expression.data = readRDS("Data/GEO_Allergy/GEN_GSE114065_Processed.rds")
+sample.info = read.csv("Data/GEO_Allergy/sample.info.stimulation.csv")
+group.1 = c("allergic-stimulated", "control-stimulated", "resolved-stimulated")
+group.2 = c("allergic-resting", "control-resting", "resolved-resting")
+target.region <- "enhancer"
+met.platform <-  "EPIC"
+genome <- "hg38"
+AnnotationRoot = paste0(getwd(),"/","Annotation")
+OutputRoot = paste0(getwd(),"/","Results/GEO_Allergy")
+cores = detectCores()/2
+MixtureModelResults = "Results/GEO_Allergy/EpiMix_Results_enhancer_perm1000.rds"
+#MixtureModelResults = NULL
+roadmap.epigenome.groups = c("Blood & T-cell")
+chromatin.states = c("EnhA1", "EnhA2", "EnhG1", "EnhG2")
+
+EpiMixResults <- EpiMix(methylation.data,
+                        gene.expression.data,
+                        sample.info = sample.info,
+                        group.1 = group.1,
+                        group.2 = group.2,
+                        mode = "enhancer",
+                        roadmap.epigenome.groups = roadmap.epigenome.groups,
+                        chromatin.states = chromatin.states,
+                        met.platform = met.platform,
+                        genome = genome,
+                        cores = cores,
+                        AnnotationRoot = AnnotationRoot,
+                        OutputRoot = OutputRoot,
+                        MixtureModelResults = MixtureModelResults
+
+)
+
+EpiMixResults <- readRDS("Results/GEO_Allergy/EpiMix_Results_enhancer_perm1000.rds")
+length(EpiMixResults$MethylationDrivers)
+
+# Count the proportion of differentially methylated CpGs
+FunctionalPairs = EpiMixResults$FunctionalPairs
+length(unique(FunctionalPairs$Probe))
+hypo.probes = unique(FunctionalPairs$Probe[which(FunctionalPairs$State == "Hypo")])
+length(hypo.probes)
+hypo.genes = unique(FunctionalPairs$Gene[which(FunctionalPairs$State == "Hypo")])
+length(hypo.genes)
+hyper.probes = unique(FunctionalPairs$Probe[which(FunctionalPairs$State == "Hyper")])
+length(hyper.probes)
+hyper.genes = unique(FunctionalPairs$Gene[which(FunctionalPairs$State == "Hyper")])
+length(hyper.genes)
+dual.probes = unique(FunctionalPairs$Probe[which(FunctionalPairs$State == "Dual")])
+length(dual.probes)
+dual.genes = unique(FunctionalPairs$Gene[which(FunctionalPairs$State == "Dual")])
+length(dual.genes)
+
+# Cluster CpGs on the same enhancer
+functional.regions = chromatin.states
+listofEpigenomes = validEpigenomes(roadmap.epigenome.groups, roadmap.epigenome.ids = NULL)
+all.enhancers = data.frame()
+for(file in filenames){
+  destfile = paste0(dir, "/", file)
+  genome.state <- as.data.frame(read.table(file = destfile,header = FALSE, sep="\t",stringsAsFactors=FALSE, quote=""))
+  colnames(genome.state)=c("chr","start","end", "state")
+  genome.state$state = sapply(genome.state$state, function(x) unlist(strsplit(x, "_"))[2])
+  genome.state = genome.state[genome.state$state %in% functional.regions, ]
+  if (length(all.enhancers) == 0){
+    all.enhancers = genome.state
+  }else{
+    all.enhancers = rbind(all.enhancers, genome.state)
+  }
+}
+rownames(all.enhancers) = NULL
+gr.enhancer = makeGRangesFromDataFrame(all.enhancers, ignore.strand = TRUE, keep.extra.columns = TRUE)
+ProbeAnnotation = EpiMix_getInfiniumAnnotation(plat = met.platform, genome = genome)
+targetAnnotation = ProbeAnnotation[which(names(ProbeAnnotation) %in% FunctionalPairs$Probe), ]
+overlaps <- as.data.frame(findOverlaps(targetAnnotation, gr.enhancer))
+count <-  overlaps %>%
+          group_by(subjectHits) %>%
+          summarise(CpGs = paste0(unique(queryHits), collapse = ";"),
+            count = length(unique(queryHits))
+            )
+repeatedCpGs <- unique(count$CpGs[which(count$count > 1)])
+# "106;107"  "43;44"    "84;85"    "47;48;49"
+
+
+
+# Gene set enrichment analysis
+FunctionalPairs <- EpiMixResults$FunctionalPairs
+# only select hypermethylated genes
+#Hyper.genes <- FunctionalPairs[FunctionalPairs$State == "Hyper", ]
+df.gene = FunctionalPairs %>%
+  dplyr::select(Gene, `Fold change of gene expression`) %>%
+  group_by(Gene) %>% summarize(Avg.expr = mean(`Fold change of gene expression`, na.rm = TRUE))
+gene_id_map = AnnotationDbi::select(org.Hs.eg.db, keys = df.gene$Gene, columns = c("ENTREZID"), keytype = "SYMBOL")
+colnames(gene_id_map) = c("Gene", "ENTREZID")
+df.gene = merge(df.gene, gene_id_map)
+gene.vector = df.gene$Avg.expr
+names(gene.vector) = df.gene$ENTREZID
+ego<- enrichGO(names(gene.vector), OrgDb = "org.Hs.eg.db", ont="BP", readable=TRUE)
+goplot(ego)
+barplot(ego, showCategory=15)
+cnetplot(ego, colorEdge = TRUE)
+ego2 <- simplify(ego)
+barplot(ego2)
+#layouts = c('star', 'circle', 'gem', 'dh', 'graphopt', 'grid', 'mds', 'randomly', 'fr', 'kk', 'drl','lgl')
+cnetplot(ego2,foldChange = log(gene.vector,2))
+pathway = ego@result
+pathway = pathway[order(pathway$Count, decreasing = TRUE), ]
+
+# Probe distribution
+ProbeAnnotation <- EpiMix_getInfiniumAnnotation(plat = met.platform, genome = genome)
+TSSAnnot <- getTSS(genome = genome) #ELMER function to retrieve a GRange object that contains coordinates of promoters for human genome.
+DM.probes <- unique(FunctionalPairs$Probe) #112
+DM.genes <- unique(FunctionalPairs$Gene) #119
+probeAnnot= ProbeAnnotation[which(names(ProbeAnnotation) %in% DM.probes), ,drop = F]
+NearbyGenes <- GetNearGenes(geneAnnot = TSSAnnot,
+                            TRange = probeAnnot,
+                            numFlankingGenes = 20)
+NearbyGenes$AbsDis <- abs(NearbyGenes$Distance)
+NearbyGenes$AbsSide <- substr(NearbyGenes$Side,2, 100)
+orderedNearByGenes <- NearbyGenes %>%
+  group_by(ID) %>%
+  mutate(rank = order(order(AbsDis)))
+
+df.distance <- data.frame(ID = FunctionalPairs$Probe, Symbol = FunctionalPairs$Gene)
+df.distance <- merge(df.distance, orderedNearByGenes, by = c("ID", "Symbol"), all.x = TRUE)
+
+# view distances by bins
+bins = seq(0, 1000000, by = 50000)
+abs_distance = df.distance$AbsDistance
+counts = hist(abs_distance, breaks = c(bins, Inf), plot = FALSE)$counts
+prop = counts/sum(counts)
+results_windows = data.frame(test.prop = prop)
+write.csv(results_windows, "Results/GEO_Allergy/test_prop.csv", row.names = FALSE)
+ggplot(df.distance, aes(x= AbsDistance))+
+  geom_histogram(color="darkblue", fill="lightblue", binwidth = 50000)
+
+# view distances by linear
+ggplot2::ggplot(df.distance, ggplot2::aes(x = Distance / 1000000)) +
+  ggplot2::geom_histogram(ggplot2::aes(y = ..density..), breaks = seq(-1, 1, by = 0.02),  col = "black", fill = "lightgrey") +
+  ggplot2::geom_density() +
+  ggplot2::scale_y_continuous(name = "Density",
+                              labels = scales::number_format(accuracy = 0.1,
+                                                             decimal.mark = '.')) +
+  ggplot2::scale_x_continuous(name = "Distance of enhancer-TSS (Mb)") +
+  ggplot2::theme_classic() +
+  ggplot2::theme(axis.text = ggplot2::element_text(size = 20, face = "bold"),
+                 axis.line = element_line(color="black", size = 0.8),
+                 axis.title = ggplot2::element_text(size = 20, face = "bold"))
+
+freq.nearest.TSS = table(df.distance$AbsSide)/sum(table(df.distance$AbsSide))
+results_TSS = data.frame(rank = names(freq.nearest.TSS), prop = freq.nearest.TSS)
+write.csv(results_TSS, "Results/GEO_Allergy/dist_nearTSS.csv", row.names = FALSE)
+
+# Randomly draw 1000 probes from distal probes
+ProbeAnnotation <- EpiMix_getInfiniumAnnotation(plat = met.platform, genome = genome)
+TSSAnnot <- getTSS(genome = genome)
+distal.probes <- names(get.feature.probe(met.platform = met.platform, genome = genome))
+df.random <- data.frame()
+for(i in seq(1:1000)){
+  print(i)
+  random.probes <- sample(distal.probes, 1000)
+  randomAnnot <- ProbeAnnotation[which(names(ProbeAnnotation) %in% random.probes), ,drop = F]
+  NearbyGenes <- GetNearGenes(geneAnnot = TSSAnnot,
+                              TRange = randomAnnot,
+                              numFlankingGenes = 20)
+  random.pairs <- NearbyGenes %>%
+    group_by(ID) %>%
+    sample_n(1)
+  abs_distance <- abs(random.pairs$Distance)
+  bins = seq(0, 1000000, by = 50000)
+  counts = hist(abs_distance, breaks = c(bins, Inf), plot = FALSE)$counts
+  counts = c(counts, 1000-sum(counts))
+  prop = round(counts/sum(counts),3)
+  if(length(df.random) == 0){
+    df.random = prop
+  }else{
+    df.random = cbind(df.random, prop)
+  }
+}
+
+overlapGenes = NearbyGenes[which(NearbyGenes$Symbol %in% FunctionalPairs$Gene),]
+
+# Fantom enhancer overlapping
+fantom.enhancers <- readRDS("Annotation/Fantom_EPIC_Enhancer_Probes.rds")
+length(unique(fantom.enhancers$probeID)) #9085
+overlapProbes <- intersect(fantom.enhancers$probeID, DM.probes) #3
+
+# Mixture plot
+plot.probe = "cg07855920"
+GeneName = "PABPC4"
+EpiMix_PlotModel(plot.probe, EpiMixResults, methylation.data, gene.expression.data, GeneName = GeneName)
+
+# plot all genes
+for(row in 1:nrow(FunctionalPairs)){
+  plot.probe = FunctionalPairs$Probe[row]
+  GeneName = FunctionalPairs$Gene[row]
+  mixture <- EpiMix_PlotModel(plot.probe, EpiMixResults, methylation.data, gene.expression.data, GeneName = GeneName)
+  png(file= paste0("Results/GEO_Allergy/mixture_enhancers/", plot.probe, "_mixture_", GeneName, ".png"),width=780, height=480)
+  print(mixture$MixtureModelPlot)
+  dev.off()
+  png(file= paste0("Results/GEO_Allergy/mixture_enhancers/", plot.probe, "_viloin_", GeneName, ".png"),width=780, height=480)
+  print(mixture$ViolinPlot)
+  dev.off()
+}
+
+# Plot enhancer probe
+EpiMixResults <- readRDS("Results/GEO_Allergy/EpiMix_Results_enhancer_perm1000.rds")
+probe.name = "cg22006489"
+
+plot.probe(probe.name,
+           EpiMixResults,
+           met.platform = "EPIC",
+           numFlankingGenes = 20,
+           left.gene.margin = 10000,
+           right.gene.margin = 10000,
+           gene.name.pos = 2,
+           gene.name.size = 0.5,
+           gene.arrow.length = 0.05,
+           gene.line.width = 2,
+           plot.chromatin.state = TRUE,
+           roadmap.epigenome.id = "E038",
+           y.label.font = 0.8,
+           y.label.margin = 0.1,
+           axis.number.font = 0.5,
+           chromatin.label.font = 0.7,
+           chromatin.label.margin = 0.02
+)
+
+plot.probe <- function(probe.name,
+                       EpiMixResults,
+                       met.platform = "HM450",
+                       numFlankingGenes = 20,
+                       left.gene.margin = 10000,
+                       right.gene.margin = 10000,
+                       gene.name.pos = 2,
+                       gene.name.size = 0.5,
+                       gene.arrow.length = 0.05,
+                       gene.line.width = 2,
+                       plot.chromatin.state = TRUE,
+                       roadmap.epigenome.id = "E002",
+                       y.label.font = 0.8,
+                       y.label.margin = 0.1,
+                       axis.number.font = 0.5,
+                       chromatin.label.font = 0.7,
+                       chromatin.label.margin = 0.02
+)
+
+# motif enrichment analysis
+library(ELMER)
+met.platform = "EPIC"
+genome = "hg38"
+EpiMixResults <- readRDS("Results/GEO_Allergy/EpiMix_Results_enhancer_allergyVScontrol.rds")
+FunctionalPairs <- EpiMixResults$FunctionalPairs
+Probes <- unique(FunctionalPairs$Probe)
+data(Probes.motif.hg38.EPIC)
+distal.probes <-  get.feature.probe(met.platform = met.platform, genome = genome)
+enriched.motif <- get.enriched.motif(probes.motif = Probes.motif.hg38.EPIC,
+                                     background.probes = names(distal.probes),
+                                     probes = Probes,
+                                     dir.out = "Results/GEO_Allergy",
+                                     label = "enhancer_motif",
+                                     min.incidence = 10,
+                                     lower.OR = 1.1)
+motif.results <- read.csv("Results/GEO_Allergy/getMotif.enhancer_motif.motif.enrichment.csv")
+
+motif.enrichment.plot(motif.enrichment = "Results/GEO_Allergy/getMotif.enhancer_motif.motif.enrichment.csv",
+                      significant = list(OR = 1.6,lowerOR = 1.5),
+                      label = "enhancer.motif",
+                      summary = TRUE,
+                      save = FALSE)
+
+
+# Figure 4 ----------------------------------------------------------------
+
+# run the EpiMix with miRNA mode on the TCGA LUAD dataset
+
+setwd("/home/eric2021/EpiMix")
+DataDirectory <- paste0(getwd(), "/", "Data/TCGA_LUAD")
+CancerSite <- "LUAD"
+methylation.data = readRDS(paste0(DataDirectory, "/", "MET_", CancerSite, "_Processed.rds"))
+gene.expression.data = readRDS(paste0(DataDirectory, "/", "GE_", CancerSite, "_Processed_miRNA.rds"))
+target.region = "miRNA"
+sample.info = read.csv(paste0(DataDirectory, "/", "sample.info.csv"))
+group.1 = "Cancer"
+group.2 = "Normal"
+met.platform <-  "HM450"
+genome <- "hg38"
+cores = detectCores() / 2
+OutputRoot = paste0(getwd(),"/","Results/TCGA_LUAD")
+MixtureModelResults = paste0(OutputRoot, "/", "EpiMix_Results_miRNA.rds")
+
+EpiMixResults <- EpiMix(methylation.data = methylation.data,
+                        gene.expression.data = gene.expression.data,
+                        target.region = target.region,
+                        sample.info = sample.info,
+                        group.1 = group.1,
+                        group.2 = group.2,
+                        met.platform = met.platform,
+                        genome = genome,
+                        cores = cores,
+                        OutputRoot = OutputRoot,
+                        MixtureModelResults = MixtureModelResults
+ )
+
+# Explore the differentially methylated probes
+EpiMixResults <-  readRDS("Results/TCGA_LUAD/EpiMix_Results_miRNA.rds")
+FunctionalPairs = EpiMixResults$FunctionalPairs
+length(unique(FunctionalPairs$Probe)) #457
+length(unique(FunctionalPairs$Gene)) #144
+
+hypo.probes = unique(FunctionalPairs$Probe[which(FunctionalPairs$State == "Hypo")]) #257
+hypo.genes = unique(FunctionalPairs$Gene[which(FunctionalPairs$State == "Hypo")]) #105
+hyper.probes = unique(FunctionalPairs$Probe[which(FunctionalPairs$State == "Hyper")]) #178
+hyper.genes = unique(FunctionalPairs$Gene[which(FunctionalPairs$State == "Hyper")]) #63
+dual.probes = unique(FunctionalPairs$Probe[which(FunctionalPairs$State == "Dual")]) #22
+dual.genes = unique(FunctionalPairs$Gene[which(FunctionalPairs$State == "Dual")]) #21
+
+# Histograms and violin plots
+DataDirectory <- paste0(getwd(), "/", "Data/TCGA_LUAD")
+CancerSite <- "LUAD"
+methylation.data <- readRDS(paste0(DataDirectory, "/", "MET_", CancerSite, "_Processed.rds"))
+gene.expression.data <- readRDS(paste0(DataDirectory, "/", "GE_", CancerSite, "_Processed_miRNA.rds"))
+
+# plot all histograms and violin plots
+for(row in 1:nrow(FunctionalPairs)){
+  plot.probe = FunctionalPairs$Probe[row]
+  GeneName = FunctionalPairs$Gene[row]
+  mixture <- EpiMix_PlotModel(EpiMixResults, plot.probe, GeneName = GeneName, methylation.data, gene.expression.data)
+  EpiMix_PlotModel <- function(EpiMixResults, Probe, GeneName = NULL, methylation.data, gene.expression.data = NULL,
+                               axis.title.font = 20, axis.text.font = 16, legend.title.font = 18, legend.text.font = 18, plot.title.font = 20)
+  png(file= paste0("Results/TCGA_LUAD/mixture_miRNA/", plot.probe, "_mixture_", GeneName, ".png"),width=780, height=480)
+  print(mixture$MixtureModelPlot)
+  dev.off()
+  png(file= paste0("Results/TCGA_LUAD/mixture_miRNA/", plot.probe, "_viloin_", GeneName, ".png"),width=780, height=480)
+  print(mixture$ViolinPlot)
+  dev.off()
+}
+
+TCGA_CancerSite = "LUAD"
+EpiMixResults <-  readRDS("Results/TCGA_LUAD/EpiMix_Results_miRNA.rds")
+OutputRoot = "Results/TCGA_LUAD"
+survival.results <- getSurvival(EpiMixResults, TCGA_CancerSite = TCGA_CancerSite, pval.threshold = 0.05, mode = "miRNA")
+
+# Find probes with more than one methylation state
+sum(EpiMixResults$NrComponents > 1)
+
+# Plot all the survival predictive probes
+plot.probes <- survival.results$Probe[which(survival.results$pval < 0.02)]
+for(plot.probe in plot.probes){
+    png(file= paste0("Results/TCGA_LUAD/Survival/", plot.probe, "_mixture.png"),
+        width=600, height=350)
+    mixture <- EpiMix_PlotModel(plot.probe, EpiMixResults, methylation.data)
+    print(mixture$MixtureModelPlot)
+    dev.off()
+    mixture.group <- Classifications[plot.probe,]
+    mixture.group <- data.frame(case_submitter_id = names(mixture.group), State = mixture.group)
+    rownames(mixture.group) = NULL
+    target.survival <-merge(survival.info, mixture.group)
+    target.survival <- target.survival[order(target.survival$State), ]
+    sfit <- survfit(Surv(time, status) ~ State, data = target.survival)
+
+    png(file= paste0("Results/TCGA_LUAD/Survival/", plot.probe, "_survival.png"),
+        width=700, height=480)
+    survival <-
+      ggsurvplot(
+                sfit,
+                pval = TRUE,
+                legend.title = "mixture component",
+                legend.labs = unique(target.survival$State),
+                xlab = "Days",
+                ylab = "Overall survival probability",
+                palette = RColorBrewer::brewer.pal(8, "Set1")[1:length(unique(target.survival$State))],
+                font.legend = c(16, "bold"),
+                font.x = c(16, "bold"),
+                font.y = c(16, "bold"),
+                font.tickslab = c(14),
+                legend= c(0.8,0.9)
+              )
+   print(survival)
+   dev.off()
+}
+
+# Plot a single probe for publication
+DataDirectory <- paste0(getwd(), "/", "Data/TCGA_LUAD")
+CancerSite <- "LUAD"
+methylation.data = readRDS(paste0(DataDirectory, "/", "MET_", CancerSite, "_Processed.rds"))
+gene.expression.data = readRDS(paste0(DataDirectory, "/", "GE_", CancerSite, "_Processed_miRNA.rds"))
+
+plot.probe <- "cg07664909"
+GeneName = "hsa-mir-29b-2"
+EpiMix_PlotModel(plot.probe, EpiMixResults, methylation.data, gene.expression.data = gene.expression.data, GeneName = GeneName)
+
+
+# plot survival graph
+mixture.group <- Classifications[plot.probe,]
+mixture.group <- data.frame(sample.id = names(mixture.group), State = mixture.group)
+rownames(mixture.group) = NULL
+target.survival <-merge(survival.info, mixture.group)
+target.survival <- target.survival[order(target.survival$State), ]
+sfit <- survfit(Surv(time, status) ~ State, data = target.survival)
+survival <-
+  ggsurvplot(
+    sfit,
+    pval = TRUE,
+    legend.title = "mixture component",
+    legend.labs = unique(target.survival$State),
+    xlab = "Days",
+    ylab = "Overall survival probability",
+    palette = RColorBrewer::brewer.pal(8, "Set1")[1:length(unique(target.survival$State))],
+    font.legend = c(20, "bold"),
+    font.x = c(20, "bold"),
+    font.y = c(20, "bold"),
+    font.tickslab = c(16),
+    legend= c(0.8,0.9)
+  )
+print(survival)
+
+
+# Global analysis of survival predictive genes
+survival = read.csv("Results/TCGA_LUAD/Survival_Probes.csv")
+survival.genes = paste0(survival$Genes, collapse = ";")
+Genes = unique(unlist(strsplit(survival.genes, ";")))
+length(Genes)
+knownGenes <- c("hsa-mir-191c", "hsa-mir-200b", "hsa-mir-200a","hsa-mir-429", "hsa-mir-326", "hsa-mir-29c", "hsa-mir-101")
+intersect(knownGenes, Genes)
+
+# Pathway enrichment analysis
+EpiMixResults <- readRDS("Results/TCGA_LUAD/EpiMix_Results_miRNA.rds")
+FunctionalPairs <- EpiMixResults$FunctionalPairs
+df.gene = FunctionalPairs %>%
+  dplyr::select(Gene, `Fold change of gene expression`) %>%
+  group_by(Gene) %>% summarize(Avg.expr = mean(`Fold change of gene expression`, na.rm = TRUE))
+gene_id_map = AnnotationDbi::select(org.Hs.eg.db, keys = df.gene$Gene, columns = c("ENTREZID"), keytype = "SYMBOL")
+colnames(gene_id_map) = c("Gene", "ENTREZID")
+df.gene = merge(df.gene, gene_id_map)
+gene.vector = df.gene$Avg.expr
+names(gene.vector) = df.gene$ENTREZID
+ego<- enrichGO(names(gene.vector), OrgDb = "org.Hs.eg.db", ont="BP", readable=TRUE)
+#goplot(ego)
+#barplot(ego, showCategory=15)
+#cnetplot(ego, colorEdge = TRUE)
+ego2 <- simplify(ego)
+barplot(ego2)
+#layouts = c('star', 'circle', 'gem', 'dh', 'graphopt', 'grid', 'mds', 'randomly', 'fr', 'kk', 'drl','lgl')
+#show.categories <- c("T cell activation", "T cell proliferation", "T cell receptor signaling pathway", "glycoprotein biosynthetic process")
+#cnetplot(ego2,foldChange = log(gene.vector,2), showCategory = show.categories)
+ego3<- enrichGO(names(gene.vector), OrgDb = "org.Hs.eg.db", ont="MF", readable=TRUE)
+
+write.csv(ego2@result, "Results/GEO_Allergy/GO_BP_regular.csv", row.names = FALSE)
+write.csv(ego3@result, "Results/GEO_Allergy/GO_MF_regular.csv", row.names = FALSE)
+
+# Figure 5 ----------------------------------------------------------------
+
+# Run EpiMix on lncRNA data
+cores = 1
+targetDirectory <- paste0(getwd(), "/Data/TCGA_LUAD")
+CancerSite = "LUAD"
+METProcessedData = readRDS(paste0(targetDirectory, "/", "MET_", CancerSite, "_Processed.rds"))
+GEProcessedData = readRDS(paste0(targetDirectory, "/", "GE_", CancerSite, "_Processed_lncRNA.rds"))
+target.region = "lncRNA"
+sample.info = TCGA_GetSampleInfo(METProcessedData, CancerSite = CancerSite, targetDirectory = targetDirectory)
+group.1 = "Cancer"
+group.2 = "Normal"
+met.platform <-  "HM450"
+genome <- "hg38"
+OutputRoot = paste0(getwd(),"/","Results/TCGA_LUAD")
+MixtureModelResults = NULL
+MixtureModelResults = paste0(getwd(),"/","Results/TCGA_LUAD/EpiMix_Results_lncRNA.rds")
+EpiMixResults <- EpiMix(methylation.data = METProcessedData,
+                        gene.expression.data = GEProcessedData,
+                        target.region = target.region,
+                        sample.info = sample.info,
+                        group.1 = group.1,
+                        group.2 = group.2,
+                        met.platform = met.platform,
+                        genome = genome,
+                        cores = cores,
+                        OutputRoot = OutputRoot,
+                        MixtureModelResults = MixtureModelResults
+)
+
+EpiMixResults <- readRDS("Results/TCGA_LUAD/EpiMix_Results_lncRNA.rds")
+
+# Compare the number of lncRNA gene from our pipline vs the GDC pipline
+length(unique(rownames(GEProcessedData))) #2475
+GDC.gene.expr = readRDS("Data/TCGA_LUAD/GE_LUAD_Processed_mRNA.rds")
+GDC.lnc.genes = rownames(GDC.gene.expr)
+GDC.lnc.genes[grep("LINC", GDC.lnc.genes)] #0
+downloader::download("https://api.gdc.cancer.gov/data/b011ee3e-14d8-4a97-aed4-e0b10f6bbe82", "Annotation/gencode.gene.info.v22.tsv")
+GENCODE = read.table("Annotation/gencode.gene.info.v22.tsv", sep = "\t", header = TRUE)
+lnc.genes = GENCODE$gene_name[which(GENCODE$gene_type == "lincRNA")] #7565
+overlapGenes = intersect(GDC.lnc.genes, lnc.genes)
+length(overlapGenes) #53
+
+# Explore the differentially methylated probes
+length(EpiMixResults$MethylationDrivers) # 2958
+
+FunctionalPairs = EpiMixResults$FunctionalPairs
+
+length(unique(FunctionalPairs$Probe)) #679
+length(unique(FunctionalPairs$Gene)) #179
+hypo.probes = unique(FunctionalPairs$Probe[which(FunctionalPairs$State == "Hypo")]) #190
+hypo.genes = unique(FunctionalPairs$Gene[which(FunctionalPairs$State == "Hypo")]) #91
+hyper.probes = unique(FunctionalPairs$Probe[which(FunctionalPairs$State == "Hyper")]) #447
+hyper.genes = unique(FunctionalPairs$Gene[which(FunctionalPairs$State == "Hyper")]) #107
+dual.probes = unique(FunctionalPairs$Probe[which(FunctionalPairs$State == "Dual")]) #42
+dual.genes = unique(FunctionalPairs$Gene[which(FunctionalPairs$State == "Dual")]) #31
+
+# plot mixture model and survival
+library(survival)
+library(survminer)
+survival.results <- getSurvival(EpiMixResults, TCGA_CancerSite = "LUAD", pval.threshold = 0.05, mode = "lncRNA", OutputRoot = "Results/TCGA_LUAD")
+
+plot.probe <- "cg00673344"
+GeneName <- "LINC00881"
+EpiMix_PlotModel(plot.probe, EpiMixResults, METProcessedData, gene.expression.data = GEProcessedData, GeneName = GeneName)
+
+
+GeneName <- "LINC00881"
+plot.probes <- FunctionalPairs$Probe[which(FunctionalPairs$Gene == GeneName)]
+for(plot.probe in plot.probes){
+   mixture <- EpiMix_PlotModel(plot.probe, EpiMixResults, METProcessedData, gene.expression.data = GEProcessedData, GeneName = GeneName)
+   png(file= paste0("Results/TCGA_LUAD/lncRNA/", plot.probe, "_mixture.png"),width=780, height=480)
+   print(mixture$MixtureModelPlot)
+   dev.off()
+   png(file= paste0("Results/TCGA_LUAD/lncRNA/", plot.probe, "_viloin.png"),width=780, height=480)
+   print(mixture$ViolinPlot)
+   dev.off()
+}
+
+# Find functional probes that are also predictive of survival.
+survival <- merge(FunctionalPairs, survival.results[, c("Probe", "p.value")])
+
+# Plot genomic coordinate of LINC00472
+gene.name = "LINC00472"
+plot.gene(gene.name = gene.name,
+          EpiMixResults,
+          roadmap.epigenome.id = "E088",
+          left.gene.margin = -68500,
+          right.gene.margin = 1500,
+          show.probe.name = FALSE
+        )
+
+gene.name = "LINC00941"
+plot.gene(gene.name = gene.name,
+          EpiMixResults,
+          roadmap.epigenome.id = "E088",
+          left.gene.margin = 1000,
+          right.gene.margin = 1000,
+          show.probe.name = FALSE
+)
+
+gene.name = "LINC00881"
+plot.gene(gene.name = gene.name,
+          EpiMixResults,
+          roadmap.epigenome.id = "E088",
+          left.gene.margin = 3000,
+          right.gene.margin = 1000,
+          show.probe.name = TRUE
+)
+
+# plot survival graph
+Classifications <- EpiMixResults$Classifications
+Classifications <-TCGA_GENERIC_CleanUpSampleNames(Classifications, 12)
+plot.probe <- "cg11931463"
+mixture.group <- Classifications[plot.probe,]
+mixture.group <- data.frame(sample.id = names(mixture.group), State = mixture.group)
+rownames(mixture.group) = NULL
+target.survival <-merge(survival.info, mixture.group)
+target.survival <- target.survival[order(target.survival$State), ]
+sfit <- survfit(Surv(time, status) ~ State, data = target.survival)
+survival <-
+  ggsurvplot(
+    sfit,
+    pval = TRUE,
+    legend.title = "mixture component",
+    legend.labs = unique(target.survival$State),
+    xlab = "Days",
+    ylab = "Overall survival probability",
+    palette = RColorBrewer::brewer.pal(8, "Set1")[1:length(unique(target.survival$State))],
+    font.legend = c(20, "bold"),
+    font.x = c(20, "bold"),
+    font.y = c(20, "bold"),
+    font.tickslab = c(16),
+    legend= c(0.8,0.9)
+  )
+print(survival)
+
+# GO analysis
+file <- "Results/TCGA_LUAD/overall_network_20220120020741.tsv"
+target.genes <- read.table(file = file, sep = '\t', header = TRUE)
+Genes <- unique(target.genes$Gene2_Name)
+gene_id_map = AnnotationDbi::select(org.Hs.eg.db, keys = Genes, columns = c("ENTREZID"), keytype = "SYMBOL")
+if(sum(is.na(gene_id_map$ENTREZID)) > 0){
+  absentGenes = gene_id_map$SYMBOL[which(is.na(gene_id_map$ENTREZID))]
+  warning(paste0("Can not find ENTREZID for ", length(absentGenes)," genes.", "These genes can not be included in the enrichment analysis:\n", paste0(absentGenes, collapse = ",")))
+}
+
+ego <- enrichGO(gene_id_map$ENTREZID, OrgDb = "org.Hs.eg.db", ont = "BP", readable = TRUE)
+ego2 <- simplify(ego)
+ego3 <- mutate(ego2, richFactor = Count / as.numeric(sub("/\\d+", "", BgRatio)))
+
+#visualization of enrichment result
+
+library(ggplot2)
+library(forcats)
+library(DOSE)
+ggplot(ego3, showCategory = 10,
+       aes(richFactor, fct_reorder(Description, richFactor))) +
+  geom_segment(aes(xend=0, yend = Description)) +
+  geom_point(aes(color=p.adjust, size = Count)) +
+  scale_color_gradientn(colours=c("#f7ca64", "#46bac2", "#7e62a3"),
+                        trans = "log10",
+                        guide=guide_colorbar(reverse=TRUE, order=1)) +
+  scale_size_continuous(range=c(2, 10)) +
+  theme_dose(12) +
+  xlab("Rich Factor") +
+  ylab(NULL) +
+  ggtitle("Biological Processes")
+
+
+
+# Functional region annotation --------------------------------------------
+# miRNA mode
+met.platform = "HM450"
+genome = "hg38"
+EpiMixResults <- readRDS("Results/TCGA_LUAD/EpiMix_Results_miRNA.rds")
+target.genes <- unique(EpiMixResults$FunctionalPairs$Gene)
+target.genes <- unique(mapTranscriptToGene(target.genes)$Gene_name) # miRNA: 144
+# retrieve the TSS of the DM genes
+tss <- getTSS(genome = genome)
+target.tss <- tss[which(tss$external_gene_name %in% target.genes), ]
+length(unique(target.tss$external_gene_name))
+target.genes <- unique(intersect(target.tss$external_gene_name, target.genes)) # miRNA: 144; lncRNA: 163
+
+promoters <- get.feature.probe(TSS = target.tss,
+                               met.platform = met.platform,
+                               genome = genome,
+                               promoter = TRUE,
+                               TSS.range = list(upstream = 2000, downstream = 500))
+promoter.probes <- unique(names(promoters))
+length(promoter.probes) # miRNA: 1008; lncRNA: 1418
+target.probes <- unique(EpiMixResults$FunctionalPairs$Probe[which(EpiMixResults$FunctionalPairs$Gene %in% target.genes)]) # miRNA: 457; lncRNA: 663
+overlap.probes <- unique(intersect(promoter.probes, target.probes))
+length(overlap.probes)  # miRNA: 296, lncRNA: 463
+
+percent <- length(overlap.probes) / length(target.probes)
+print(percent)
+
+find.promoter.percent <- function(tss, target.probes, target.genes, upstream = 2000, downstream = 500, met.platform = "HM450", genome = "hg38"){
+  target.tss <- tss[which(tss$external_gene_name %in% target.genes), ]
+  cat("Found TSSs for", length(unique(target.tss$external_gene_name)), "genes\n")
+  target.genes <- unique(intersect(target.tss$external_gene_name, target.genes))
+  promoters <- get.feature.probe(TSS = target.tss,
+                                 met.platform = met.platform,
+                                 genome = genome,
+                                 promoter = TRUE,
+                                 TSS.range = list(upstream = upstream, downstream = downstream))
+  promoter.probes <- unique(names(promoters))
+  overlap.probes <- intersect(promoter.probes, target.probes)
+  cat("Found", length(overlap.probes), "probes within promters\n")
+  percent <- length(overlap.probes) / length(target.probes)
+  return(percent)
+}
+
+
+# Randomly draw probes from the probes being modeled
+all.probes <- readRDS("Results/TCGA_LUAD/modeled_miRNA_probes.rds") # 3126
+miRNA.probes = EpiMix_GetData(HM450_miRNA_probes)
+random.percent <- c()
+for(i in 1:1000){
+  print(i)
+  rand.probes <- sample(all.probes, 457)
+  target.genes <- miRNA.probes$gene[which(miRNA.probes$probe %in% rand.probes)]
+  target.genes <- intersect(rownames(gene.expression.data), target.genes)
+  target.genes <- unique(mapTranscriptToGene(target.genes)$Gene_name)
+  tss <- getTSS(genome = genome)
+  percent <- find.promoter.percent(tss, rand.probes, target.genes)
+  print(percent)
+  random.percent <- c(random.percent, percent)
+}
+random.df <- data.frame(percent = random.percent)
+write.csv(random.df, "Results/TCGA_LUAD/random_miRNA_probes_promoters.csv")
+
+# lncRNA mode
+met.platform = "HM450"
+genome = "hg38"
+EpiMixResults <- readRDS("Results/TCGA_LUAD/EpiMix_Results_lncRNA.rds")
+target.genes <- unique(EpiMixResults$FunctionalPairs$Gene) #lncRNA: 179
+tss <- getTSS(genome = genome)
+target.tss <- tss[which(tss$external_gene_name %in% target.genes), ]
+length(unique(target.tss$external_gene_name))
+target.genes = unique(intersect(target.tss$external_gene_name, target.genes)) # miRNA: 144; lncRNA: 163
+
+promoters <- get.feature.probe(TSS = target.tss,
+                               met.platform = met.platform,
+                               genome = genome,
+                               promoter = TRUE,
+                               TSS.range = list(upstream = 2000, downstream = 500))
+promoter.probes <- unique(names(promoters))
+length(promoter.probes) #lncRNA: 1418
+target.probes <- unique(EpiMixResults$FunctionalPairs$Probe[which(EpiMixResults$FunctionalPairs$Gene %in% target.genes)]) # miRNA: 457; lncRNA: 663
+overlap.probes <- unique(intersect(promoter.probes, target.probes))
+length(overlap.probes)  #lncRNA: 463
+percent <- length(overlap.probes) / length(target.probes)
+print(percent)
+
+
+# Randomly draw probes from the probes being modeled
+all.probes <- readRDS("Results/TCGA_LUAD/modeled_lncRNA_probes.rds")
+lncRNA.probes = EpiMix_GetData(HM450_lncRNA_probes)
+random.percent <- c()
+for(i in 1:1000){
+  print(i)
+  rand.probes <- sample(all.probes, 663)
+  target.genes <- unique(names(lncRNA.probes)[which(lncRNA.probes %in% rand.probes)])
+  target.genes <- intersect(rownames(gene.expression.data), target.genes)
+  tss <- getTSS(genome = genome)
+  percent <- find.promoter.percent(tss, rand.probes, target.genes)
+  print(percent)
+  random.percent <- c(random.percent, percent)
+}
+random.df <- data.frame(percent = random.percent)
+write.csv(random.df, "Results/TCGA_LUAD/random_lncRNA_probes_promoters.csv")
+
+
+
+# protein-coding genes
+library("TxDb.Hsapiens.UCSC.hg38.knownGene")
+genome = "hg38"
+met.platform = "EPIC"
+EpiMixResults <- readRDS("Results/GEO_Allergy/EpiMix_Results_regular_simulationVSresting.rds")
+functional.probes <- unique(EpiMixResults$FunctionalPairs$Probe) #1,090
+functional.genes <- unique(EpiMixResults$FunctionalPairs$Gene) #748
+probe <- EpiMix_getInfiniumAnnotation(toupper(met.platform),genome)
+
+# calculate the proportion of the promoter probes
+tss <- getTSS(genome = genome)
+target.tss <- tss[which(tss$external_gene_name %in% functional.genes), ]
+target.genes = unique(intersect(functional.genes, target.tss$external_gene_name)) #restrict to the genes which have TSS information available
+length(target.genes) #748
+target.probes <- unique(functional.probes[which(EpiMixResults$FunctionalPairs$Gene %in% target.genes)]) #1,090, restrict to the functional probes which have TSS information avalible
+promoters <- get.feature.probe(TSS = target.tss,
+                               met.platform = met.platform,
+                               genome = genome,
+                               promoter = TRUE,
+                               TSS.range = list(upstream = 2000, downstream = 500))
+promoter.probes <- unique(names(promoters)) # these are the probes that correspond to the promoters of the functional genes
+length(promoter.probes) #17,040
+overlap.probes <- unique(intersect(promoter.probes, target.probes))
+length(overlap.probes) #343
+promoter_percent <- length(overlap.probes)/length(target.probes)
+print(promoter_percent * 100) #31.47%
+
+
+ref <- TxDb.Hsapiens.UCSC.hg38.knownGene
+suppressWarnings({
+  exon.probes <- probe[unique(queryHits(findOverlaps(probe, exons(ref),ignore.strand=TRUE)))]
+})
+
+exon.probes <- unique(names(exon.probes)[which(exon.probes$gene_HGNC %in% functional.genes)])
+length(exon.probes) #6,280
+
+length(unique(intersect(exon.probes, overlap.probes))) #45
+exon.probes <- setdiff(exon.probes, overlap.probes) #get rid of those exon probes overlapped with promoters
+length(unique(exon.probes)) #6,235
+
+exon.probes <- unique(intersect(exon.probes, functional.probes))
+
+exon_percent <- length(exon.probes) / length(functional.probes)
+exon_percent * 100 #3.39%
+
+suppressWarnings({
+  intron.probes <- probe[unique(queryHits(findOverlaps(probe, intronicParts(ref),ignore.strand=TRUE)))]
+})
+
+intron.probes <- unique(names(intron.probes)[which(intron.probes$gene_HGNC %in% functional.genes)])
+length(intron.probes) #31,731
+
+length(unique(intersect(intron.probes, overlap.probes))) #155
+length(unique(intersect(intron.probes, exon.probes))) #13
+
+intron.probes <- setdiff(intron.probes, overlap.probes) # get rid of those probes overlapped with promoters
+intron.probes <- setdiff(intron.probes, exon.probes) # get rid of those probes overlapped with exons
+length(unique(intron.probes)) #31,563
+
+intron.probes <- unique(intersect(intron.probes, functional.probes))
+
+intron_percent <- length(intron.probes) / length(functional.probes)
+intron_percent * 100 #53.85%
+
+
+# GSuite ------------------------------------------------------------------
+
+library(rtracklayer)
+
+# Regular mode
+genome = "hg19"
+met.platform = "EPIC"
+annotation <- EpiMix_getInfiniumAnnotation(toupper(met.platform),genome)
+EpiMixResults <- readRDS("Results/GEO_Allergy/EpiMix_Results_regular_simulationVSresting.rds")
+functional.probes <- unique(EpiMixResults$FunctionalPairs$Probe)
+target.annotation <- annotation[which(names(annotation) %in% functional.probes),]
+
+export.gff(target.annotation, "Results/GEO_Allergy/regular.gff")
+export.gff(annotation, "Results/GEO_Allergy/EPIC_hg19.gff")
+
+# miRNA mode
+met.platform = "HM450"
+genome = "hg19" # the same version with chromatin tracks!
+EpiMixResults <- readRDS("Results/TCGA_LUAD/EpiMix_Results_miRNA.rds")
+functional.probes <- unique(EpiMixResults$FunctionalPairs$Probe)
+length(functional.probes) #457
+
+# find only the probes that were involved in the DNA methylation modeling
+setwd("/home/eric2021/EpiMix")
+DataDirectory <- paste0(getwd(), "/", "Data/TCGA_LUAD")
+CancerSite <- "LUAD"
+methylation.data = readRDS(paste0(DataDirectory, "/", "MET_", CancerSite, "_Processed.rds"))
+gene.expression.data = readRDS(paste0(DataDirectory, "/", "GE_", CancerSite, "_Processed_miRNA.rds")) #406 genes * 509 patients
+
+miRNA.probes = EpiMix_GetData(HM450_miRNA_probes)
+length(unique(miRNA.probes$probe)) #12,742
+overlapProbes = unique(miRNA.probes$probe[which(miRNA.probes$gene %in% rownames(gene.expression.data))])
+overlapProbes = intersect(overlapProbes, rownames(methylation.data))
+length(overlapProbes) #3,126
+background.probes <- setdiff(overlapProbes, functional.probes) #2,669
+
+#export the target probes and background probes
+annotation <- EpiMix_getInfiniumAnnotation(toupper(met.platform),genome)
+target.annotation <- annotation[which(names(annotation) %in% functional.probes),]
+background.annotation <- annotation[which(names(annotation) %in% background.probes),]
+all.annotation <- annotation[which(names(annotation) %in% overlapProbes),]
+export.gff(target.annotation, "Results/TCGA_LUAD/miRNA.gff")
+export.gff(background.annotation, "Results/TCGA_LUAD/miRNA_background.gff")
+export.gff(all.annotation, "Results/TCGA_LUAD/miRNA_all.gff")
+
+# lncRNA mode
+met.platform = "HM450"
+genome = "hg19" # the same version with chromatin tracks!
+EpiMixResults <- readRDS("Results/TCGA_LUAD/EpiMix_Results_lncRNA.rds")
+functional.probes <- unique(EpiMixResults$FunctionalPairs$Probe)
+length(functional.probes) #679
+annotation <- EpiMix_getInfiniumAnnotation(toupper(met.platform),genome)
+target.annotation <- annotation[which(names(annotation) %in% functional.probes),]
+export.gff(target.annotation, "Results/TCGA_LUAD/lncRNA.gff")
+
+
+
+# find only the probes that were involved in the DNA methylation modeling
+setwd("/home/eric2021/EpiMix")
+DataDirectory <- paste0(getwd(), "/", "Data/TCGA_LUAD")
+CancerSite <- "LUAD"
+methylation.data = readRDS(paste0(DataDirectory, "/", "MET_", CancerSite, "_Processed.rds"))
+gene.expression.data = readRDS(paste0(DataDirectory, "/", "GE_", CancerSite, "_Processed_lncRNA.rds"))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

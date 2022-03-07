@@ -1,0 +1,26 @@
+{
+    "id": "9C931FC6",
+    "path": "~/EpiMix/EpiMix.data/R/EpiMix.data.R",
+    "project_path": "R/EpiMix.data.R",
+    "type": "r_source",
+    "hash": "659984784",
+    "contents": "",
+    "dirty": false,
+    "created": 1644019548063.0,
+    "source_on_save": false,
+    "relative_order": 11,
+    "properties": {
+        "source_window_id": "",
+        "Source": "Source",
+        "cursorPosition": "135,33",
+        "scrollLine": "0"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1646443787,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1646443787654,
+    "read_only": false,
+    "read_only_alternatives": []
+}
