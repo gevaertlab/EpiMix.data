@@ -1,5 +1,0 @@
-setwd("~/EpiMix/EpiMix.data")
-
-tools::add_datalist("~/EpiMix/EpiMix.data", force = T)
-
-devtools::document(roclets=c('rd', 'collate', 'namespace'))
