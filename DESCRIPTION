@@ -2,10 +2,10 @@ Package: EpiMix.data
 Title: Data for the EpiMix package
 Version: 0.99.0
 Authors@R: c(
-             person("Yuanning", "Zheng", email = c("yuanning.zheng@gmail.com"), role = c("aut", "cre")),
+             person("Yuanning", "Zheng", email = c("erci2021@stanford.edu"), role = c("aut", "cre")),
              person("Olivier", "Gevaert", email = c("ogevaert@stanford.edu"), role = c("aut"))
              )
-Maintainer: Yuanning Zheng <yuanning.zheng@gmail.com>
+Maintainer: Yuanning Zheng <erci2021@stanford.edu>
 Description:
   Supporting data for the EpiMix R package.
   It include:
@@ -23,13 +23,12 @@ Description:
    - Sample_EpiMixResults_lncRNA
    - Sample_EpiMixResults_miRNA
    - Sample_EpiMixResults_Regular
-  That is. 
+   - lncRNA expression data of tumors from TCGA that are stored in the ExperimentHub
 License: GPL-3
 Encoding: UTF-8
 LazyData: true
 Depends:
-    R (>= 3.5.0)
-biocViews: AssayDomainData, TechnologyData, OrganismData
+    ExperimentHub (>= 0.99.6)
+biocViews: ExperimentData, ExperimentHub, Genome, RNASeqData
 NeedsCompilation: no
 RoxygenNote: 7.1.2
-VignetteBuilder: knitr
