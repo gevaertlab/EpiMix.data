@@ -1,3 +1,6 @@
+#' @importFrom ExperimentHub ExperimentHub
+NULL
+
 #' A dataframe that maps CpG probes genes to microRNA genes.
 #' @docType data
 #' @keywords internal
@@ -10,7 +13,8 @@
 
 "HM450_miRNA_probes"
 
-#' A dataframe that maps CpG probes genes to microRNA genes. The vectors names are genes and the values are CpG probes
+#' A dataframe that maps CpG probes genes to microRNA genes.
+#' The vectors names are genes and the values are CpG probes
 #' @docType data
 #' @keywords internal
 #' @name EPIC_miRNA_probes
@@ -22,7 +26,8 @@
 
 "EPIC_miRNA_probes"
 
-#' A character vector that maps CpG probes to lncRNA genes. The vectors names are genes and the values are CpG probes
+#' A character vector that maps CpG probes to lncRNA genes.
+#' The vectors names are genes and the values are CpG probes
 #' @docType data
 #' @keywords internal
 #' @name HM450_lncRNA_probes
@@ -34,7 +39,8 @@
 
 "HM450_lncRNA_probes"
 
-#' A character vector that maps CpG probes to lncRNA genes. The vectors names are genes and the values are CpG probes
+#' A character vector that maps CpG probes to lncRNA genes.
+#' The vectors names are genes and the values are CpG probes
 #' @docType data
 #' @keywords internal
 #' @name EPIC_lncRNA_probes

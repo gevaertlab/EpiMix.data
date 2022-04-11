@@ -3,7 +3,8 @@
 \docType{data}
 \name{EPIC_miRNA_probes}
 \alias{EPIC_miRNA_probes}
-\title{A dataframe that maps CpG probes genes to microRNA genes. The vectors names are genes and the values are CpG probes}
+\title{A dataframe that maps CpG probes genes to microRNA genes.
+The vectors names are genes and the values are CpG probes}
 \format{
 A dataframe with 23,379 rows and 3 columns
 }
@@ -11,7 +12,8 @@ A dataframe with 23,379 rows and 3 columns
 EPIC_miRNA_probes
 }
 \description{
-A dataframe that maps CpG probes genes to microRNA genes. The vectors names are genes and the values are CpG probes
+A dataframe that maps CpG probes genes to microRNA genes.
+The vectors names are genes and the values are CpG probes
 }
 \examples{
 \dontrun{

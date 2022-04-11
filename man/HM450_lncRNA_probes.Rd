@@ -3,7 +3,8 @@
 \docType{data}
 \name{HM450_lncRNA_probes}
 \alias{HM450_lncRNA_probes}
-\title{A character vector that maps CpG probes to lncRNA genes. The vectors names are genes and the values are CpG probes}
+\title{A character vector that maps CpG probes to lncRNA genes.
+The vectors names are genes and the values are CpG probes}
 \format{
 A character vector with 108202 elements
 }
@@ -11,7 +12,8 @@ A character vector with 108202 elements
 HM450_lncRNA_probes
 }
 \description{
-A character vector that maps CpG probes to lncRNA genes. The vectors names are genes and the values are CpG probes
+A character vector that maps CpG probes to lncRNA genes.
+The vectors names are genes and the values are CpG probes
 }
 \examples{
 \dontrun{

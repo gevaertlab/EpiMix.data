@@ -1,0 +1,47 @@
+---
+title: "EpiMix.data"
+author: |
+    | Yuanning Zheng, John Jun, Kevin Brennan and Olivier Gevaert
+    |
+    | Stanford Center for Biomedical Informatics Research (BIMR)
+    | Department of Medicine
+    | 1265 Welch Road
+    | Stanford CA, 94305-5479
+date: "`r Sys.Date()`"
+package: EpiMix.data
+output: 
+  html_document:
+    theme: flatly
+    highlight: tango
+vignette: >
+  %\VignetteIndexEntry{vignette}
+  %\VignetteEncoding{UTF-8}
+  %\VignetteEngine{knitr::rmarkdown}
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+## Introduction
+
+Supporting data package for the EpiMix package. The package includes:
+
+(1) CpG annotation for miRNAs and lncRNAs. 
+
+(2) Toy datasets for demonstration purpose of the main EpiMix packages. 
+
+(3) Methods to retrieve lncRNA expression data of the TCGA project from ExperimentHub
+
+## Session Info
+
+```{r}
+sessionInfo()
+```
+
+

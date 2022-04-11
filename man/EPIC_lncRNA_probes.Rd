@@ -3,7 +3,8 @@
 \docType{data}
 \name{EPIC_lncRNA_probes}
 \alias{EPIC_lncRNA_probes}
-\title{A character vector that maps CpG probes to lncRNA genes. The vectors names are genes and the values are CpG probes}
+\title{A character vector that maps CpG probes to lncRNA genes.
+The vectors names are genes and the values are CpG probes}
 \format{
 A character vector with 205645 elements
 }
@@ -11,7 +12,8 @@ A character vector with 205645 elements
 EPIC_lncRNA_probes
 }
 \description{
-A character vector that maps CpG probes to lncRNA genes. The vectors names are genes and the values are CpG probes
+A character vector that maps CpG probes to lncRNA genes.
+The vectors names are genes and the values are CpG probes
 }
 \examples{
 \dontrun{
