@@ -5,7 +5,7 @@ NULL
 #' @docType data
 #' @keywords internal
 #' @name HM450_miRNA_probes
-#' @format A dataframe with 17,192 rows and 3 columns
+#' @format A dataframe with 17,495 rows and 4 columns
 #' @examples
 #' \dontrun{
 #' data("HM450_miRNA_probes")
@@ -18,7 +18,7 @@ NULL
 #' @docType data
 #' @keywords internal
 #' @name EPIC_miRNA_probes
-#' @format A dataframe with 23,379 rows and 3 columns
+#' @format A dataframe with 23,907 rows and 4 columns
 #' @examples
 #' \dontrun{
 #' data("EPIC_miRNA_probes")

@@ -5,7 +5,7 @@
 \alias{HM450_miRNA_probes}
 \title{A dataframe that maps CpG probes genes to microRNA genes.}
 \format{
-A dataframe with 17,192 rows and 3 columns
+A dataframe with 17,495 rows and 4 columns
 }
 \usage{
 HM450_miRNA_probes

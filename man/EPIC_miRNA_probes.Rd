@@ -6,7 +6,7 @@
 \title{A dataframe that maps CpG probes genes to microRNA genes.
 The vectors names are genes and the values are CpG probes}
 \format{
-A dataframe with 23,379 rows and 3 columns
+A dataframe with 23,907 rows and 4 columns
 }
 \usage{
 EPIC_miRNA_probes
