@@ -183,6 +183,19 @@ NULL
 
 "Sample_EpiMixResults_lncRNA"
 
+#' toy dataset for EpiMix output with Enhancer mode
+#' @description a list object returned from EpiMix
+#' @docType data
+#' @keywords internal
+#' @name Sample_EpiMixResults_Enhancer
+#' @format a list
+#' @examples
+#' \dontrun{
+#' data("Sample_EpiMixResults_Enhancer")
+#' }
+
+"Sample_EpiMixResults_Enhancer"
+
 
 
 
