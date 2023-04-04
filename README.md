@@ -17,6 +17,7 @@ The package includes CpG site annotation for miRNA genes and lncRNA genes. It al
    - Sample_EpiMixResults_lncRNA
    - Sample_EpiMixResults_miRNA
    - Sample_EpiMixResults_Regular
+   - Sample_EpiMixResults_Enhancer
    - lncRNA expression data of tumors from TCGA that are stored in the ExperimentHub
    
 ### Authors
