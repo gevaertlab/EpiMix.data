@@ -1,9 +1,8 @@
 Package: EpiMix.data
 Title: Data for the EpiMix package
 
-Version: 1.0.1
+Version: 1.0.2
 
->>>>>>> master
 Authors@R: c(
              person("Yuanning", "Zheng", email = c("eric2021@stanford.edu"), role = c("aut", "cre"))
              )
